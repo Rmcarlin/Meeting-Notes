@@ -1,0 +1,4 @@
+faster-whisper==1.2.1
+PyAudioWPatch==0.2.12.9
+# PyAV 19 removed metadata_errors, which faster-whisper 1.2.1 still uses.
+av==16.1.0

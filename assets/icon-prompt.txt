@@ -1,0 +1,9 @@
+Generated with the built-in image_gen tool, October 15, 2026.
+
+Final prompt:
+Use case: logo-brand. Asset type: square Windows desktop application icon for the existing Meeting Notes audio recording and transcription app. Create one polished, distinctive app icon: a deep teal softly rounded square tile with subtle depth, with a bold warm-white microphone whose lower stem blends into three short transcript lines; a small mint-green sound-wave accent suggests recording. Match the app's existing deep teal (#176b60), navy and white palette. Front-facing centered composition, broad simple silhouette, generous inset, thick clean shapes that remain legible at 16, 32 and 48 pixels. The rounded square occupies nearly all the image with a small transparent margin. Subtle professional finish, no tiny details. No words, letters, numbers, watermark, scene, mockup or surrounding objects. This is the actual icon artwork, not a presentation.
+
+Transparent background: true.
+Original artwork: meeting-notes.png
+Windows icon: meeting-notes.ico (16, 24, 32, 48, 64, 96, 128, 256 pixels)
+App header: meeting-notes-48.png

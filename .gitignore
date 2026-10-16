@@ -1,0 +1,9 @@
+.venv/
+.runtime/
+.tmp/
+.models/
+meetings/
+__pycache__/
+*.pyc
+settings.json
+*.lnk
