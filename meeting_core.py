@@ -105,6 +105,17 @@ class Meeting:
         with (self.folder / "transcript.txt").open("a", encoding="utf-8") as out:
             out.write(f"[{timestamp(entry.start)}] {entry.source}: {entry.text}\n")
 
+    def replace_entries(self, entries):
+        """Commit reviewed speech while keeping the live journal for recovery."""
+        journal = self.folder / "transcript.jsonl"
+        backup = self.folder / "transcript.live.jsonl"
+        if journal.exists() and not backup.exists():
+            atomic_text(backup, journal.read_text(encoding="utf-8"))
+        ordered = sorted(entries, key=lambda entry: entry.start)
+        atomic_text(journal, "".join(json.dumps(asdict(entry), ensure_ascii=False) + "\n"
+                                   for entry in ordered))
+        self.entries = ordered
+
     def finish(self, status: str):
         # Re-sort the final transcript because two audio sources can finish out of order.
         ordered = sorted(self.entries, key=lambda e: e.start)

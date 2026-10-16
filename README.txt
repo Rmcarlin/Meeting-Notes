@@ -28,11 +28,27 @@ RECORD A MEETING
 6. Open this folder to review your transcript, notes, subtitles and recordings.
 
 QUALITY AND PERFORMANCE
-Base (the default): balanced everyday transcription, with a wider search.
-Small: a larger recognition model; uses more memory and CPU time.
-Tiny: fastest recognition for slower computers, with lower accuracy.
+Large-v3-turbo (the default): stronger recognition, recommended for accuracy.
+Its first download is about 1.6 GB. The model has been installed on this computer.
+Medium.en: a larger English-only alternative.
+Small.en: a lighter option for computers without a supported NVIDIA GPU.
+Base.en / Tiny.en: faster lightweight options, with more recognition mistakes.
+Existing preferences migrate to Large-v3-turbo once after this upgrade.
 The chosen model, mode and audio devices are remembered across restarts.
 The recognition model changes transcript accuracy, not the recorded WAV quality.
+
+Recognition uses the NVIDIA GPU when compatible CUDA libraries are available,
+and falls back to CPU if the GPU is unavailable or model loading fails. NVIDIA
+acceleration is installed and verified on this computer. On another Windows PC,
+install the optional libraries with:
+  .venv\Scripts\python.exe -m pip install -r requirements-gpu.txt
+CPU recognition needs no extra libraries but larger models can fall behind live
+audio. Recording continues independently while queued speech is processed.
+
+In Settings, add names, companies, products and acronyms under Names and
+terminology. Separate them with commas; these are hints, not guaranteed spellings.
+For example: PepsiCo, Ryan, quarterly business review
+Recognition still runs locally; recordings are not uploaded for transcription.
 
 Audio saves as lossless 16-bit PCM WAV at each device's reported native sample
 rate, with up to two channels. Microphone and playback stay on separate tracks.
@@ -45,11 +61,16 @@ is near clipping: lower the microphone level in Windows or move it farther away.
 Quiet playback is normal when nobody is speaking. A silent source cannot produce
 a useful transcript. Recognition uses voice activity detection to skip silence.
 
-Transcript jobs cover eight seconds with up to one second of surrounding audio
+Transcript jobs cover twenty seconds with up to two seconds of surrounding audio
 on either side. Word timestamps exclude context from neighboring jobs. The
-first live text appears after about nine seconds plus model processing time.
+first live text appears after about twenty-two seconds plus model processing time.
 If processing falls behind, the queue count shows the backlog; audio continues
 to save independently. Stop waits for that saved speech to finish processing.
+
+Improve the final transcript is on by default. After Stop, the app reviews each
+complete source recording with longer sentence context, then replaces its live
+text. The Refining phase shows this work. A source's live text is kept if review
+fails; audio is kept for retry. Disable this option in Settings for a faster stop.
 
 WORKSPACE
 Live transcript: timestamps and audio source labels, updated during the meeting.
@@ -73,6 +94,8 @@ All meetings save under the "meetings" folder beside this program.
 Each session has a folder with its date, time and title:
   transcript.txt   - Readable transcript sorted by timestamp after processing.
   transcript.jsonl - Append-only transcript journal, saved as speech arrives.
+                     Replaced atomically with reviewed text after final review.
+  transcript.live.jsonl - Original live journal, preserved before review replaces it.
   transcript.srt   - Timed subtitles, generated when the session is finalized.
   notes.md         - Draft excerpts for actions, decisions and dates.
   meeting.json     - Status, model, devices, format, duration and reported issues.
@@ -112,8 +135,13 @@ outside the session folder are kept. Active sessions cannot be deleted.
 
 BLUETOOTH / AUDIO TROUBLESHOOTING
 Refresh devices after connecting a headset. Bluetooth devices may switch audio
-profiles when their microphone is used. Try the laptop microphone with headset
-playback, then match the meeting application's selected output again.
+profiles when their microphone is used. If sound stops when recording starts,
+select the laptop microphone in BOTH Meeting Notes and the meeting application,
+and keep the earbuds selected for playback in both apps. In Teams, choose
+Microphone Array (Realtek(R) Audio) as Microphone and Pixel Buds as Speaker.
+Restart an already-open Meeting Notes window after an app update, then refresh
+devices after connecting the earbuds. Confirm your playback selection before
+recording; it is preserved on refresh as long as that device remains available.
 If no microphone is available, check Windows microphone privacy settings.
 If a device disconnects, capture stops and any saved audio is finished and kept.
 If you change playback devices mid-meeting, stop and start a new session.

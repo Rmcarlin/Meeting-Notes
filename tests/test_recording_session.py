@@ -127,3 +127,64 @@ class RecordingSessionTests(unittest.TestCase):
                             Entry(.123, 2.04, "Meeting audio", "Earlier")])
         self.assertIn("1\n00:00:00,123 --> 00:00:02,040\nMeeting audio: Earlier", result)
         self.assertIn("2\n00:00:03,501 --> 00:00:04,700", result)
+
+    def test_full_recording_review_corrects_live_text_and_preserves_recovery_journal(self):
+        self._check_review()
+
+    def test_failed_review_keeps_complete_live_source_and_other_source_can_improve(self):
+        self._check_review(fail_microphone=True)
+
+    def _check_review(self, fail_microphone=False):
+        stop = threading.Event()
+        options = []
+
+        class RecordedCapture:
+            def __init__(self, selections, folder, jobs, report, levels):
+                self.folder, self.jobs = folder, jobs
+                self.failed = threading.Event()
+                self.streams = []
+                self.formats = [{"source": "Microphone"}, {"source": "Meeting audio"}]
+                self.source_offsets = {"Microphone": 0.5, "Meeting audio": 0.1}
+
+            def start(self):
+                self.started = time.monotonic()
+                for item in self.formats:
+                    (self.folder / (item["source"].replace(" ", "_") + "_full.wav")).write_bytes(b"retained audio")
+                stop.set()
+
+            def stop(self):
+                for item in self.formats:
+                    self.jobs.put(AudioJob(self.folder / "live.wav", 0, item["source"]))
+
+        class Model:
+            def transcribe(self, path, **kwargs):
+                options.append(kwargs)
+                full = path.endswith("_full.wav")
+                def segments():
+                    yield NS(start=1, end=2, text="PepsiCo will send the agenda Friday." if full else "Pepsi go wrong.", words=None)
+                    if fail_microphone and path.endswith("Microphone_full.wav"):
+                        raise RuntimeError("Review interrupted")
+                return segments(), NS(duration=3)
+
+        with tempfile.TemporaryDirectory() as location:
+            meeting = Meeting("Review", Path(location))
+            SessionRunner(queue.Queue(), stop, {"large-v3-turbo": Model()}, capture_factory=RecordedCapture).run(
+                meeting, "large-v3-turbo", [], None, vocabulary="PepsiCo, Ryan")
+            self.assertEqual(len(meeting.entries), 2, "review must replace live text without duplicating it")
+            by_source = {entry.source: entry for entry in meeting.entries}
+            self.assertIn("PepsiCo", by_source["Meeting audio"].text)
+            self.assertAlmostEqual(by_source["Meeting audio"].start, 1.1)
+            self.assertIn("wrong" if fail_microphone else "PepsiCo", by_source["Microphone"].text)
+            if not fail_microphone:
+                self.assertAlmostEqual(by_source["Microphone"].start, 1.5)
+            live = (meeting.folder / "transcript.live.jsonl").read_text()
+            self.assertEqual(live.count("Pepsi go wrong."), 2)
+            journal = [json.loads(line) for line in (meeting.folder / "transcript.jsonl").read_text().splitlines()]
+            self.assertEqual(len(journal), 2)
+            self.assertEqual(journal[0]["text"], by_source["Meeting audio"].text if not fail_microphone else by_source["Microphone"].text)
+            metadata = json.loads((meeting.folder / "meeting.json").read_text())
+            self.assertEqual(metadata["status"], "completed_with_errors" if fail_microphone else "completed")
+            self.assertEqual(metadata["reviewed_sources"], ["Meeting audio"] if fail_microphone else ["Microphone", "Meeting audio"])
+            self.assertTrue(all(option["hotwords"] == "PepsiCo, Ryan" for option in options))
+            self.assertEqual([option["condition_on_previous_text"] for option in options], [False, False, True, True])
+            self.assertEqual((meeting.folder / "audio/Microphone_full.wav").read_bytes(), b"retained audio")

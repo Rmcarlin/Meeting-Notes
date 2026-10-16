@@ -10,6 +10,7 @@ from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
 
 from meeting_core import Meeting, MEETINGS_DIR, ROOT, atomic_text, draft_notes, saved_meetings, timestamp
+from speech_recognition import DEFAULT_MODEL, MODEL_CHOICES, RECOGNITION_VERSION
 
 
 class App(tk.Tk):
@@ -55,11 +56,16 @@ class App(tk.Tk):
             self.settings = {}
         self.meeting_title = tk.StringVar(value="My meeting")
         self.mode = tk.StringVar(value=self.settings.get("mode", "Online meeting + microphone"))
-        self.model_name = tk.StringVar(value=self.settings.get("model", "base.en"))
+        model = self.settings.get("model", DEFAULT_MODEL)
+        if self.settings.get("recognition_version", 0) < RECOGNITION_VERSION:
+            model = DEFAULT_MODEL
+        self.model_name = tk.StringVar(value=model)
+        self.vocabulary = tk.StringVar(value=self.settings.get("vocabulary", ""))
+        self.refine_transcript = tk.BooleanVar(value=self.settings.get("refine_transcript", True))
         if self.mode.get() not in ("Online meeting + microphone", "Room / microphone only", "Computer audio only"):
             self.mode.set("Online meeting + microphone")
-        if self.model_name.get() not in ("tiny.en", "base.en", "small.en"):
-            self.model_name.set("base.en")
+        if self.model_name.get() not in MODEL_CHOICES:
+            self.model_name.set(DEFAULT_MODEL)
         self.follow_live = tk.BooleanVar(value=True)
         self.library_search = tk.StringVar()
         self.queue_label = tk.StringVar(value="No audio queued")
@@ -293,17 +299,25 @@ class App(tk.Tk):
                           lambda parent: ttk.Combobox(parent, state="readonly"), 1, 2)
         self.refresh_button = ttk.Button(recording, text="Refresh audio devices", command=self.refresh_devices)
         self.refresh_button.grid(row=3, column=0, sticky="w", pady=(0, 4))
-        ttk.Label(recording, text="Wear headphones to reduce microphone echo. Computer audio captures all sound on the selected output.",
+        ttk.Label(recording, text="For Bluetooth earbuds, use the computer microphone in both apps. Computer audio captures all sound on the selected output.",
                   style="Muted.TLabel", wraplength=640).grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
         transcription = ttk.LabelFrame(frame, text="  Transcription  ", padding=(14, 14))
         transcription.pack(fill="x", pady=(0, 14))
         transcription.columnconfigure(0, weight=1)
         transcription.columnconfigure(1, weight=2)
-        row(transcription, "ENGLISH SPEECH MODEL", lambda parent: ttk.Combobox(parent, state="readonly",
-            textvariable=self.model_name, values=["tiny.en", "base.en", "small.en"]), 0, 0)
+        row(transcription, "SPEECH RECOGNITION MODEL", lambda parent: ttk.Combobox(parent, state="readonly",
+            textvariable=self.model_name, values=MODEL_CHOICES), 0, 0)
         ttk.Label(transcription, textvariable=self.model_hint, style="Muted.TLabel",
                   wraplength=420).grid(row=0, column=1, sticky="w", padx=(0, 10))
+        row(transcription, "NAMES AND TERMINOLOGY (OPTIONAL)",
+            lambda parent: ttk.Entry(parent, textvariable=self.vocabulary), 0, 1, 2)
+        ttk.Label(transcription, text="Add people, company names, products, or acronyms, separated by commas.",
+                  style="Muted.TLabel", wraplength=640).grid(row=2, column=0, columnspan=2, sticky="w")
+        refine = ttk.Checkbutton(transcription, text="Improve the final transcript from the complete recording",
+                                 variable=self.refine_transcript)
+        refine.grid(row=3, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        self.lockable.append(refine)
 
         storage = ttk.LabelFrame(frame, text="  Meeting files  ", padding=(14, 14))
         storage.pack(fill="x")
@@ -437,8 +451,10 @@ class App(tk.Tk):
 
     def update_model_hint(self):
         hints = {"tiny.en": "Fastest • lower accuracy. Useful on slower PCs.",
-                 "base.en": "Balanced • recommended for everyday meetings.",
-                 "small.en": "Higher accuracy • needs more processing time."}
+                 "base.en": "Faster, but more word errors than the larger models.",
+                 "small.en": "Lighter option for computers without a supported GPU.",
+                 "medium.en": "Larger English model. Slower on CPU.",
+                 "large-v3-turbo": "Recommended for accuracy. Uses NVIDIA acceleration when available; slower on CPU."}
         self.model_hint.set(hints.get(self.model_name.get(), "") + " First use downloads the model.")
 
     def update_mode(self):
@@ -449,7 +465,10 @@ class App(tk.Tk):
 
     def save_settings(self):
         self.settings.update({"mode": self.mode.get(), "model": self.model_name.get(),
-                              "microphone": self.mic.get(), "output": self.output.get()})
+                              "microphone": self.mic.get(), "output": self.output.get(),
+                              "vocabulary": self.vocabulary.get().strip()[:1000],
+                              "refine_transcript": self.refine_transcript.get(),
+                              "recognition_version": RECOGNITION_VERSION})
         try:
             atomic_text(ROOT / "settings.json", json.dumps(self.settings, indent=2))
         except OSError:
@@ -499,8 +518,9 @@ class App(tk.Tk):
             from audio_capture import devices
             self.inputs, self.outputs, default_in, default_out = devices()
             for widget, items, default, key in [(self.mic, self.inputs, default_in, "microphone"), (self.output, self.outputs, default_out, "output")]:
-                # Meeting apps play through the system default output, which changes with headsets.
-                previous = None if key == "output" else widget.get() or self.settings.get(key)
+                # Keep the user's device choice when refreshing before capture.
+                # Teams may use a different output from the Windows default.
+                previous = widget.get() or self.settings.get(key)
                 widget["values"] = [f"{d['name']}  [{d['index']}]" for d in items]
                 if items:
                     names = list(widget["values"])
@@ -575,12 +595,14 @@ class App(tk.Tk):
         self._set_text(self.transcript, "")
         self._set_text(self.notes, "Notes will be ready when processing finishes.")
         self.status.set("Preparing imported recording..." if imported else "Opening your selected audio devices...")
-        threading.Thread(target=self.run_session, args=(self.meeting, self.model_name.get(), selections, imported), daemon=True).start()
+        threading.Thread(target=self.run_session,
+                         args=(self.meeting, self.model_name.get(), selections, imported,
+                               self.vocabulary.get().strip()[:1000], self.refine_transcript.get()), daemon=True).start()
 
-    def run_session(self, meeting, model_name, selections, imported):
+    def run_session(self, meeting, model_name, selections, imported, vocabulary="", refine=True):
         from recording_session import SessionRunner
         SessionRunner(self.events, self.stop_requested, self.model_cache).run(
-            meeting, model_name, selections, imported)
+            meeting, model_name, selections, imported, vocabulary, refine)
 
     def stop(self):
         if not self.busy or self.stop_requested.is_set():
@@ -622,7 +644,10 @@ class App(tk.Tk):
                 elif kind == "phase":
                     if payload == "Transcribing" and not self.stop_requested.is_set():
                         self.session_started = time.monotonic()
-                    self.phase.set("Finishing" if self.stop_requested.is_set() else payload)
+                    self.phase.set("Finishing" if self.stop_requested.is_set() and payload != "Refining" else payload)
+                    if payload == "Refining":
+                        self.progress["value"] = 0
+                        self.queue_label.set("Reviewing complete recordings for the final transcript")
                 elif kind == "processing":
                     self.queue_label.set(f"{payload} audio chunk(s) processing / queued • audio saved independently" if payload else
                                          "Transcript is up to date • waiting for the next audio chunk" if not self.imported else "Import processing finished")
@@ -636,6 +661,9 @@ class App(tk.Tk):
                     self.queue_label.set(f"{len(meeting.entries):,} transcript segments • saved locally")
                     self._set_text(self.notes, draft_notes(meeting.entries, meeting.title))
                     ordered = sorted(meeting.entries, key=lambda e: e.start)
+                    self.segment_count = len(ordered)
+                    self.word_count = sum(len(entry.text.split()) for entry in ordered)
+                    self.segment_label.set(f"{self.word_count:,} words")
                     self._set_text(self.transcript, "\n\n".join(f"[{timestamp(e.start)}] {e.source}: {e.text}" for e in ordered) or "No speech detected.")
                     if errors:
                         self.status.set(f"Finished with {len(errors)} issue(s). Details are in meeting.json.")

@@ -31,7 +31,7 @@ class MeetingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             jobs = queue.Queue()
             problems = []
-            capture = Capture([], Path(folder), jobs, problems.append)
+            capture = Capture([], Path(folder), jobs, problems.append, chunk_seconds=8, overlap_seconds=1)
             capture.started = time.monotonic()
             buffer = queue.Queue()
             rate = 16000

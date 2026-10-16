@@ -1,13 +1,13 @@
 """Capture and speech processing orchestration, independent of the desktop UI."""
 from pathlib import Path
 from datetime import datetime
-import os
 import queue
 import threading
 import time
 
 from audio_capture import AudioJob, Capture
 from meeting_core import Entry, ROOT
+from speech_recognition import load_model, transcription_options
 
 
 def segment_entry(segment, job):
@@ -39,7 +39,7 @@ class SessionRunner:
         self.model_factory = model_factory
         self.capture_factory = capture_factory
 
-    def run(self, meeting, model_name, selections, imported):
+    def run(self, meeting, model_name, selections, imported, vocabulary="", refine=True):
         jobs = queue.Queue()
         capture = None
         processor = None
@@ -64,16 +64,15 @@ class SessionRunner:
                 if model_name not in self.cache:
                     emit("status", "Loading speech model. First use may download it; live audio is already being saved."
                          if not imported else "Loading speech model for your imported recording.")
-                    factory = self.model_factory
-                    if factory is None:
-                        from faster_whisper import WhisperModel
-                        factory = WhisperModel
-                    model = factory(model_name, device="cpu", compute_type="int8",
-                                    cpu_threads=max(1, min(8, (os.cpu_count() or 4) - 2)),
-                                    download_root=str(ROOT / ".models"))
+                    if self.model_factory is None:
+                        model = load_model(model_name, lambda message: emit("status", message))
+                    else:
+                        model = self.model_factory(model_name, device="cpu", compute_type="int8",
+                                                   download_root=str(ROOT / ".models"))
                     self.cache.clear()
                     self.cache[model_name] = model
                 model = self.cache[model_name]
+                meeting.details["recognition_device"] = getattr(getattr(model, "model", None), "device", "cpu")
                 emit("status", "Transcribing locally. Audio and transcripts save automatically.")
                 while True:
                     job = jobs.get()
@@ -85,11 +84,7 @@ class SessionRunner:
                     emit("processing", jobs.qsize() + 1)
                     try:
                         segments, info = model.transcribe(
-                            str(job.path), language="en", beam_size=1 if model_name == "tiny.en" else 5,
-                            vad_filter=True, vad_parameters={"min_silence_duration_ms": 400,
-                                                             "speech_pad_ms": 300},
-                            word_timestamps=True, condition_on_previous_text=False,
-                            hallucination_silence_threshold=2.0)
+                            str(job.path), **transcription_options(model_name, vocabulary, bool(imported)))
                         for segment in segments:
                             if imported and self.stop_requested.is_set():
                                 canceled.set()
@@ -103,12 +98,56 @@ class SessionRunner:
                     except Exception as exc:
                         report(f"Could not transcribe {job.path.name}: {exc}. The original audio is available for retry.")
                     emit("processing", jobs.qsize())
+                if not imported and refine:
+                    review_recordings(model)
             except Exception as exc:
                 report(f"Speech model could not load: {exc}. Any captured audio has been retained.")
                 failed.set()
 
+        def review_recordings(model):
+            # Capture has stopped and all live jobs have drained before this runs.
+            # Review each continuous track rather than stitching short clips.
+            masters = []
+            for audio_format in capture.formats:
+                source = audio_format["source"]
+                path = meeting.folder / "audio" / f"{source.replace(' ', '_')}_full.wav"
+                if path.exists():
+                    masters.append((source, path))
+            if not masters:
+                return
+            emit("phase", "Refining")
+            emit("status", "Improving the final transcript from the complete recordings. Live text is kept for recovery.")
+            revised = list(meeting.entries)
+            reviewed = []
+            for index, (source, path) in enumerate(masters):
+                try:
+                    offset = getattr(capture, "source_offsets", {}).get(source, 0.0)
+                    job = AudioJob(path, offset, source)
+                    segments, info = model.transcribe(
+                        str(path), **transcription_options(model_name, vocabulary, full_recording=True))
+                    entries = []
+                    for segment in segments:
+                        entry = segment_entry(segment, job)
+                        if entry:
+                            entries.append(entry)
+                        if info.duration:
+                            emit("progress", min(99, (index + segment.end / info.duration) / len(masters) * 100))
+                    if not entries and any(entry.source == source for entry in revised):
+                        raise RuntimeError("Review found no speech; the live transcript has been kept")
+                    revised = [entry for entry in revised if entry.source != source] + entries
+                    reviewed.append(source)
+                except Exception as exc:
+                    report(f"Could not improve {source}: {exc}. Live text and audio have been kept.")
+            if reviewed:
+                try:
+                    meeting.replace_entries(revised)
+                    meeting.details["reviewed_sources"] = reviewed
+                except Exception as exc:
+                    report(f"Could not save the reviewed transcript: {exc}. Check the retained journals.")
+
         try:
-            meeting.details.update({"model": model_name, "imported_path": str(imported) if imported else None})
+            meeting.details.update({"model": model_name, "imported_path": str(imported) if imported else None,
+                                    "vocabulary": vocabulary, "full_recording_review": bool(refine and not imported)})
             if imported:
                 jobs.put(AudioJob(Path(imported), 0, "Imported recording"))
                 emit("phase", "Transcribing")
@@ -141,6 +180,7 @@ class SessionRunner:
                 if recording_started is not None:
                     capture_duration = time.monotonic() - recording_started
                 emit("capture_stopped", capture_duration)
+                meeting.details["source_start_offsets"] = getattr(capture, "source_offsets", {})
             if processor:
                 if not imported or self.stop_requested.is_set():
                     emit("phase", "Finishing")

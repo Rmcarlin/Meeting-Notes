@@ -36,7 +36,8 @@ def devices():
 
 
 class Capture:
-    def __init__(self, selections, folder: Path, jobs: queue.Queue, report, levels=None, overlap_seconds=1.0):
+    def __init__(self, selections, folder: Path, jobs: queue.Queue, report, levels=None,
+                 overlap_seconds=2.0, chunk_seconds=20.0):
         self.selections = selections
         self.folder = folder
         self.jobs = jobs
@@ -49,7 +50,9 @@ class Capture:
         self.started = 0.0
         self.levels = levels
         self.overlap_seconds = overlap_seconds
+        self.chunk_seconds = chunk_seconds
         self.formats = []
+        self.source_offsets = {}
 
     def start(self):
         self.audio = pa.PyAudio()
@@ -90,7 +93,7 @@ class Capture:
 
     def _write(self, buffer, source, rate, channels):
         frames = bytearray()
-        chunk_size = rate * channels * 2 * 8  # Eight seconds of signed 16-bit PCM.
+        chunk_size = int(rate * self.chunk_seconds) * channels * 2
         offset = 0.0
         sequence = 0
         first = True
@@ -140,6 +143,7 @@ class Capture:
                     last_level = arrived
                 if first:
                     offset = max(0, arrived - self.started - len(data) / (rate * channels * 2))
+                    self.source_offsets[source] = offset
                     first = False
                 frames.extend(data)
                 # Give boundary words context on both sides. Only the central
