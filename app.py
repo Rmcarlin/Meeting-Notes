@@ -499,7 +499,8 @@ class App(tk.Tk):
             from audio_capture import devices
             self.inputs, self.outputs, default_in, default_out = devices()
             for widget, items, default, key in [(self.mic, self.inputs, default_in, "microphone"), (self.output, self.outputs, default_out, "output")]:
-                previous = widget.get() or self.settings.get(key)
+                # Meeting apps play through the system default output, which changes with headsets.
+                previous = None if key == "output" else widget.get() or self.settings.get(key)
                 widget["values"] = [f"{d['name']}  [{d['index']}]" for d in items]
                 if items:
                     names = list(widget["values"])
@@ -525,6 +526,8 @@ class App(tk.Tk):
     def start(self):
         if self.busy:
             return
+        if self.mode.get() != "Room / microphone only":
+            self.refresh_devices()
         selections = []
         if self.mode.get() != "Computer audio only":
             if not self.inputs or self.mic.current() < 0:
