@@ -29,7 +29,7 @@ class App(tk.Tk):
             except tk.TclError:
                 pass
         self.geometry("1240x880")
-        self.minsize(1040, 780)
+        self.minsize(520, 400)
         self.configure(bg="#f2f5f8")
         self.events = queue.Queue()
         self.stop_requested = threading.Event()
@@ -104,9 +104,15 @@ class App(tk.Tk):
         style.configure("TCombobox", padding=5, fieldbackground="#f8fafc", bordercolor="#dce3ea")
         style.map("TCombobox", fieldbackground=[("readonly", "#f8fafc")], selectbackground=[("readonly", "#f8fafc")], selectforeground=[("readonly", "#20334b")])
         style.configure("TNotebook", background="white", borderwidth=0)
-        style.configure("TNotebook.Tab", padding=(16, 10), background="#eaf0f5", font=("Segoe UI", 10))
+        style.configure("TNotebook.Tab", width=18, padding=(22, 12),
+                        background="#eaf0f5", font=("Segoe UI", 10))
         style.map("TNotebook.Tab", background=[("selected", "white")],
-                  foreground=[("selected", "#176b60")], font=[("selected", ("Segoe UI", 10, "bold"))])
+                  foreground=[("selected", "#176b60")],
+                  expand=[("selected", (0, 0, 0, 0))], padding=[("selected", (22, 12))])
+        # Remove the dotted focus outline that makes the clicked tab look different.
+        style.layout("TNotebook.Tab", [("Notebook.tab", {"sticky": "nswe", "children": [
+            ("Notebook.padding", {"side": "top", "sticky": "nswe", "children": [
+                ("Notebook.label", {"side": "top", "sticky": ""})]})]})])
         style.configure("TLabelframe", background="white", bordercolor="#e2e9ef", relief="solid", borderwidth=1)
         style.configure("TLabelframe.Label", background="white", foreground="#20334b",
                         font=("Segoe UI", 10, "bold"))
@@ -114,8 +120,38 @@ class App(tk.Tk):
         style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"), padding=8, background="#f1f5f8")
         style.map("Treeview", background=[("selected", "#dceee8")], foreground=[("selected", "#16493f")])
 
-        shell = ttk.Frame(self, padding=20)
-        shell.pack(fill="both", expand=True)
+        page = ttk.Frame(self)
+        page.pack(fill="both", expand=True)
+        page.rowconfigure(0, weight=1)
+        page.columnconfigure(0, weight=1)
+        canvas = tk.Canvas(page, highlightthickness=0, bd=0, background=self.cget("background"))
+        vbar = ttk.Scrollbar(page, orient="vertical", command=canvas.yview)
+        hbar = ttk.Scrollbar(page, orient="horizontal", command=canvas.xview)
+        canvas.configure(yscrollcommand=vbar.set, xscrollcommand=hbar.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        vbar.grid(row=0, column=1, sticky="ns")
+        hbar.grid(row=1, column=0, sticky="ew")
+        shell = ttk.Frame(canvas, padding=20)
+        shell_window = canvas.create_window(0, 0, window=shell, anchor="nw")
+
+        def fit_shell(_event=None):
+            # Fill the window when it is large; keep the content's own size and scroll when it is small.
+            width = max(canvas.winfo_width(), shell.winfo_reqwidth())
+            height = max(canvas.winfo_height(), shell.winfo_reqheight())
+            canvas.itemconfigure(shell_window, width=width, height=height)
+            canvas.configure(scrollregion=(0, 0, width, height))
+            for bar, size, req in ((vbar, canvas.winfo_height(), shell.winfo_reqheight()),
+                                   (hbar, canvas.winfo_width(), shell.winfo_reqwidth())):
+                bar.state(["!disabled"] if req > size else ["disabled"])
+
+        def wheel(event):
+            if isinstance(event.widget, (tk.Text, ttk.Treeview)):
+                return
+            canvas.yview_scroll(-1 * (event.delta // 120), "units")
+
+        canvas.bind("<Configure>", fit_shell)
+        shell.bind("<Configure>", fit_shell)
+        self.bind_all("<MouseWheel>", wheel, add="+")
         shell.columnconfigure(0, weight=1)
         shell.rowconfigure(1, weight=1)
         header = ttk.Frame(shell)
@@ -129,30 +165,27 @@ class App(tk.Tk):
         ttk.Label(header, text="LOCAL AUDIO  /  AUTOMATIC SAVE", font=("Segoe UI", 9, "bold"), foreground="#627185").pack(side="right")
         body = ttk.Frame(shell)
         body.grid(row=1, column=0, sticky="nsew")
-        sidebar_shell = ttk.Frame(body, style="Card.TFrame", width=220)
-        sidebar_shell.pack(side="left", fill="y", padx=(0, 18))
-        sidebar_shell.pack_propagate(False)
-        sidebar = ttk.Frame(sidebar_shell, style="Card.TFrame", padding=(14, 14))
-        sidebar.pack(fill="both", expand=True)
-        ttk.Label(sidebar, text="Meeting controls", style="Card.TLabel", font=("Segoe UI", 14, "bold")).pack(anchor="w")
-        ttk.Label(sidebar, text="Start a session or import a recording.", style="Muted.TLabel", wraplength=185).pack(anchor="w", pady=(4, 12))
+        main = ttk.Frame(body)
+        main.pack(fill="both", expand=True)
+        workspace_header = ttk.Frame(main)
+        workspace_header.pack(fill="x", pady=(0, 10))
+        ttk.Label(workspace_header, textvariable=self.workspace_title, font=("Segoe UI", 18, "bold"),
+                  wraplength=760).pack(side="left", anchor="w")
         self.lockable = []
         self.open_settings_button = ttk.Button(
-            sidebar, text="Configure settings", command=lambda: self.tabs.select(self.settings_tab))
-        self.open_settings_button.pack(fill="x", pady=(0, 14))
-        self.start_button = ttk.Button(sidebar, text="Start recording", style="Accent.TButton", command=self.start)
-        self.start_button.pack(fill="x")
-        self.stop_button = ttk.Button(sidebar, text="Stop & finish notes", style="Stop.TButton", command=self.stop, state="disabled")
-        self.stop_button.pack(fill="x", pady=(7, 10))
-        self.import_button = ttk.Button(sidebar, text="Import a recording", command=self.import_audio)
-        self.import_button.pack(fill="x")
-        ttk.Label(sidebar, text="Use headphones for calls. Computer audio includes all apps on the selected output.", style="Muted.TLabel", wraplength=185).pack(anchor="w", pady=(12, 0))
-
-        main = ttk.Frame(body)
-        main.pack(side="left", fill="both", expand=True)
-        ttk.Label(main, textvariable=self.workspace_title, font=("Segoe UI", 18, "bold"), wraplength=760).pack(anchor="w", pady=(0, 14))
+            workspace_header, text="Settings", command=lambda: self.tabs.select(self.settings_tab))
+        self.open_settings_button.pack(side="right", padx=(12, 0))
+        controls = ttk.Frame(main, style="Card.TFrame", padding=(10, 8))
+        controls.pack(fill="x", pady=(0, 12))
+        self.start_button = ttk.Button(controls, text="Start recording", style="Accent.TButton", command=self.start)
+        self.start_button.pack(side="left")
+        self.stop_button = ttk.Button(controls, text="Stop & finish notes", style="Stop.TButton", command=self.stop, state="disabled")
+        self.stop_button.pack(side="left", padx=(8, 0))
+        self.import_button = ttk.Button(controls, text="Import recording...", command=self.import_audio)
+        self.import_button.pack(side="left", padx=(8, 0))
+        ttk.Label(controls, text="Ctrl+Enter to start or stop", style="Muted.TLabel").pack(side="right", padx=8)
         stats = ttk.Frame(main)
-        stats.pack(fill="x", pady=(0, 14))
+        stats.pack(fill="x", pady=(0, 10))
         for index, (label, value) in enumerate([("SESSION", self.phase), ("ELAPSED", self.elapsed), ("TRANSCRIPT", self.segment_label)]):
             stats.columnconfigure(index, weight=1, uniform="stats")
             card = ttk.Frame(stats, style="Card.TFrame", padding=(16, 11))
@@ -160,7 +193,7 @@ class App(tk.Tk):
             ttk.Label(card, text=label, style="Muted.TLabel").pack(anchor="w")
             ttk.Label(card, textvariable=value, style="Card.TLabel", font=("Segoe UI", 13, "bold")).pack(anchor="w", pady=(3, 0))
         status_card = ttk.Frame(main, style="Card.TFrame", padding=(14, 10))
-        status_card.pack(fill="x", pady=(0, 14))
+        status_card.pack(fill="x", pady=(0, 10))
         ttk.Label(status_card, textvariable=self.status, style="Card.TLabel", wraplength=660).pack(anchor="w")
         ttk.Label(status_card, textvariable=self.queue_label, style="Muted.TLabel").pack(anchor="w", pady=(5, 0))
         self.progress = ttk.Progressbar(status_card, mode="determinate", maximum=100,
@@ -179,7 +212,7 @@ class App(tk.Tk):
             meter.pack(fill="x")
             self.level_widgets[source] = (label, meter)
         toolbar = ttk.Frame(main, style="Card.TFrame", padding=(8, 5))
-        toolbar.pack(fill="x")
+        toolbar.pack(fill="x", pady=(0, 0))
         ttk.Button(toolbar, text="Copy text", command=self.copy_current).pack(side="left")
         ttk.Button(toolbar, text="Export...", command=self.export_current).pack(side="left", padx=6)
         ttk.Checkbutton(toolbar, text="Follow live transcript", variable=self.follow_live).pack(side="right")
@@ -236,27 +269,28 @@ class App(tk.Tk):
         ttk.Label(frame, text="Set up the meeting before you start recording. Preferences are remembered for next time.",
                   style="Muted.TLabel", wraplength=700).pack(anchor="w", pady=(4, 18))
 
-        def row(parent, label, widget, column, row_index, columnspan=1):
+        def row(parent, label, widget_factory, column, row_index, columnspan=1):
             cell = ttk.Frame(parent, style="Card.TFrame")
             cell.grid(row=row_index, column=column, columnspan=columnspan, sticky="ew",
                       padx=(0, 14 if column == 0 and columnspan == 1 else 0),
                       pady=(0, 12))
             ttk.Label(cell, text=label, style="Muted.TLabel",
                       font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(0, 4))
+            widget = widget_factory(cell)
             widget.pack(fill="x")
             self.lockable.append(widget)
+            return widget
 
         recording = ttk.LabelFrame(frame, text="  Recording  ", padding=(14, 14))
         recording.pack(fill="x", pady=(0, 14))
         recording.columnconfigure(0, weight=1)
         recording.columnconfigure(1, weight=1)
-        row(recording, "MEETING TITLE", ttk.Entry(recording, textvariable=self.meeting_title), 0, 0, 2)
-        row(recording, "CAPTURE MODE", ttk.Combobox(recording, state="readonly", textvariable=self.mode,
+        row(recording, "MEETING TITLE", lambda parent: ttk.Entry(parent, textvariable=self.meeting_title), 0, 0, 2)
+        row(recording, "CAPTURE MODE", lambda parent: ttk.Combobox(parent, state="readonly", textvariable=self.mode,
             values=["Online meeting + microphone", "Room / microphone only", "Computer audio only"]), 0, 1, 2)
-        self.mic = ttk.Combobox(recording, state="readonly")
-        self.output = ttk.Combobox(recording, state="readonly")
-        row(recording, "MICROPHONE", self.mic, 0, 2)
-        row(recording, "MEETING PLAYBACK", self.output, 1, 2)
+        self.mic = row(recording, "MICROPHONE", lambda parent: ttk.Combobox(parent, state="readonly"), 0, 2)
+        self.output = row(recording, "MEETING PLAYBACK",
+                          lambda parent: ttk.Combobox(parent, state="readonly"), 1, 2)
         self.refresh_button = ttk.Button(recording, text="Refresh audio devices", command=self.refresh_devices)
         self.refresh_button.grid(row=3, column=0, sticky="w", pady=(0, 4))
         ttk.Label(recording, text="Wear headphones to reduce microphone echo. Computer audio captures all sound on the selected output.",
@@ -266,7 +300,7 @@ class App(tk.Tk):
         transcription.pack(fill="x", pady=(0, 14))
         transcription.columnconfigure(0, weight=1)
         transcription.columnconfigure(1, weight=2)
-        row(transcription, "ENGLISH SPEECH MODEL", ttk.Combobox(transcription, state="readonly",
+        row(transcription, "ENGLISH SPEECH MODEL", lambda parent: ttk.Combobox(parent, state="readonly",
             textvariable=self.model_name, values=["tiny.en", "base.en", "small.en"]), 0, 0)
         ttk.Label(transcription, textvariable=self.model_hint, style="Muted.TLabel",
                   wraplength=420).grid(row=0, column=1, sticky="w", padx=(0, 10))
@@ -421,9 +455,16 @@ class App(tk.Tk):
         except OSError:
             pass  # Recording must still work if preferences cannot be saved.
 
+    def _selected_text_widget(self):
+        selected = self.tabs.select()
+        for widget in (self.transcript, self.notes, self.library_preview):
+            if str(widget.master) == selected:
+                return widget
+        return None
+
     def current_text(self):
-        tab = self.tabs.index(self.tabs.select())
-        return (self.transcript, self.notes, self.library_preview)[tab].get("1.0", "end-1c")
+        widget = self._selected_text_widget()
+        return widget.get("1.0", "end-1c") if widget is not None else ""
 
     def copy_current(self):
         content = self.current_text()
@@ -436,7 +477,7 @@ class App(tk.Tk):
         content = self.current_text()
         if not content.strip():
             return
-        notes = self.tabs.index(self.tabs.select()) == 1
+        notes = self._selected_text_widget() is self.notes
         path = filedialog.asksaveasfilename(title="Export current text", defaultextension=".md" if notes else ".txt",
                                            initialfile="meeting-notes.md" if notes else "transcript.txt",
                                            filetypes=[("Markdown", "*.md"), ("Text", "*.txt")] if notes else [("Text", "*.txt"), ("Markdown", "*.md")])
