@@ -56,7 +56,8 @@ Live transcript: timestamps and audio source labels, updated during the meeting.
 Follow live transcript: turn off to read older text without automatic scrolling.
 Meeting notes: draft excerpts update during the meeting and are finalized on stop.
 Settings: meeting title, capture mode, microphone, playback device, speech model,
-device refresh, and save-location shortcuts.
+device refresh, and save-location shortcuts. Use Configure settings beside the
+recording controls to open the settings tab directly.
 Copy text / Export: copy or export the currently visible transcript, notes or
 library preview. Export to a location outside the meetings library.
 Saved meetings: search by title or creation date, preview transcripts or notes,
