@@ -125,54 +125,21 @@ class App(tk.Tk):
         ttk.Label(header, text="LOCAL AUDIO  /  AUTOMATIC SAVE", font=("Segoe UI", 9, "bold"), foreground="#627185").pack(side="right")
         body = ttk.Frame(shell)
         body.grid(row=1, column=0, sticky="nsew")
-        sidebar_shell = ttk.Frame(body, style="Card.TFrame", width=310)
+        sidebar_shell = ttk.Frame(body, style="Card.TFrame", width=220)
         sidebar_shell.pack(side="left", fill="y", padx=(0, 18))
         sidebar_shell.pack_propagate(False)
-        sidebar_canvas = tk.Canvas(sidebar_shell, bg="white", highlightthickness=0, width=294)
-        sidebar_scroll = ttk.Scrollbar(sidebar_shell, orient="vertical", command=sidebar_canvas.yview)
-        sidebar_scroll.pack(side="right", fill="y")
-        sidebar_canvas.pack(side="left", fill="both", expand=True)
-        sidebar_canvas.configure(yscrollcommand=sidebar_scroll.set)
-        sidebar = ttk.Frame(sidebar_canvas, style="Card.TFrame", padding=(14, 14))
-        sidebar_window = sidebar_canvas.create_window((0, 0), window=sidebar, anchor="nw")
-        sidebar.bind("<Configure>", lambda e: sidebar_canvas.configure(scrollregion=sidebar_canvas.bbox("all")))
-        sidebar_canvas.bind("<Configure>", lambda e: sidebar_canvas.itemconfigure(sidebar_window, width=e.width))
-        def scroll_setup(event):
-            sidebar_canvas.yview_scroll(-int(event.delta / 120), "units")
-        def bind_setup_scroll(widget):
-            if not isinstance(widget, ttk.Combobox):
-                widget.bind("<MouseWheel>", scroll_setup)
-            for child in widget.winfo_children():
-                bind_setup_scroll(child)
-        ttk.Label(sidebar, text="Meeting setup", style="Card.TLabel", font=("Segoe UI", 14, "bold")).pack(anchor="w")
-        ttk.Label(sidebar, text="Set your sources. Sound saves immediately.", style="Muted.TLabel").pack(anchor="w", pady=(4, 8))
+        sidebar = ttk.Frame(sidebar_shell, style="Card.TFrame", padding=(14, 14))
+        sidebar.pack(fill="both", expand=True)
+        ttk.Label(sidebar, text="Meeting controls", style="Card.TLabel", font=("Segoe UI", 14, "bold")).pack(anchor="w")
+        ttk.Label(sidebar, text="Start a session or import a recording.", style="Muted.TLabel", wraplength=185).pack(anchor="w", pady=(4, 12))
         self.lockable = []
-
-        def row(label, widget):
-            ttk.Label(sidebar, text=label, style="Card.TLabel", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(5, 2))
-            widget.pack(fill="x")
-            self.lockable.append(widget)
-
-        row("MEETING TITLE", ttk.Entry(sidebar, textvariable=self.meeting_title))
-        row("CAPTURE MODE", ttk.Combobox(sidebar, state="readonly", textvariable=self.mode,
-            values=["Online meeting + microphone", "Room / microphone only", "Computer audio only"]))
-        self.mic = ttk.Combobox(sidebar, state="readonly")
-        self.output = ttk.Combobox(sidebar, state="readonly")
-        row("MICROPHONE", self.mic)
-        row("MEETING PLAYBACK", self.output)
-        row("ENGLISH SPEECH MODEL", ttk.Combobox(sidebar, state="readonly", textvariable=self.model_name,
-            values=["tiny.en", "base.en", "small.en"]))
-        ttk.Label(sidebar, textvariable=self.model_hint, style="Muted.TLabel", wraplength=270).pack(anchor="w", pady=(6, 8))
         self.start_button = ttk.Button(sidebar, text="Start recording", style="Accent.TButton", command=self.start)
         self.start_button.pack(fill="x")
         self.stop_button = ttk.Button(sidebar, text="Stop & finish notes", style="Stop.TButton", command=self.stop, state="disabled")
         self.stop_button.pack(fill="x", pady=(7, 10))
         self.import_button = ttk.Button(sidebar, text="Import a recording", command=self.import_audio)
         self.import_button.pack(fill="x")
-        self.refresh_button = ttk.Button(sidebar, text="Refresh audio devices", command=self.refresh_devices)
-        self.refresh_button.pack(fill="x", pady=(7, 0))
-        ttk.Label(sidebar, text="Use headphones for calls. Computer audio includes all apps on your selected output.", style="Muted.TLabel", wraplength=270).pack(anchor="w", pady=(10, 0))
-        bind_setup_scroll(sidebar)
+        ttk.Label(sidebar, text="Use headphones for calls. Computer audio includes all apps on the selected output.", style="Muted.TLabel", wraplength=185).pack(anchor="w", pady=(12, 0))
 
         main = ttk.Frame(body)
         main.pack(side="left", fill="both", expand=True)
@@ -214,16 +181,9 @@ class App(tk.Tk):
         self.transcript = self._text_tab(self.tabs, "Live transcript")
         self.notes = self._text_tab(self.tabs, "Meeting notes")
         self._library_tab(self.tabs)
+        self._settings_tab(self.tabs)
         self._set_text(self.transcript, "Ready when you are\n\nStart a meeting or import a recording to see the transcript here.\n\nMicrophone and Meeting audio identify the audio source. Individual speakers are not identified.")
         self._set_text(self.notes, "Your draft notes will appear here when processing finishes.\n\nReview matching excerpts for possible action items, decisions, and deadlines.")
-
-        storage = ttk.Frame(shell, style="Card.TFrame", padding=(16, 12))
-        storage.grid(row=2, column=0, sticky="ew", pady=(18, 0))
-        storage.columnconfigure(0, weight=1)
-        ttk.Label(storage, text="SAVE LOCATION  ·  Transcript, notes & recorded audio", style="Muted.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Entry(storage, textvariable=self.save_path, state="readonly").grid(row=1, column=0, sticky="ew", pady=(5, 0), padx=(0, 12))
-        ttk.Button(storage, text="Open this folder", command=self.open_folder).grid(row=0, column=1, rowspan=2, padx=(0, 8))
-        ttk.Button(storage, text="All meetings", command=self.open_all_meetings).grid(row=0, column=2, rowspan=2)
 
     def _library_tab(self, tabs):
         frame = ttk.Frame(tabs, style="Card.TFrame", padding=16)
@@ -260,6 +220,47 @@ class App(tk.Tk):
         self.library_preview.configure(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y")
         self.library_preview.pack(fill="both", expand=True)
+
+    def _settings_tab(self, tabs):
+        frame = ttk.Frame(tabs, style="Card.TFrame", padding=20)
+        tabs.add(frame, text="Settings")
+        ttk.Label(frame, text="Meeting settings", style="Card.TLabel", font=("Segoe UI", 15, "bold")).pack(anchor="w")
+        ttk.Label(frame, text="Choose what to record and how speech is transcribed.", style="Muted.TLabel").pack(anchor="w", pady=(4, 12))
+
+        options = ttk.Frame(frame, style="Card.TFrame")
+        options.pack(fill="x")
+
+        def row(label, widget):
+            ttk.Label(options, text=label, style="Card.TLabel", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(5, 2))
+            widget.pack(fill="x")
+            self.lockable.append(widget)
+
+        row("MEETING TITLE", ttk.Entry(options, textvariable=self.meeting_title))
+        row("CAPTURE MODE", ttk.Combobox(options, state="readonly", textvariable=self.mode,
+            values=["Online meeting + microphone", "Room / microphone only", "Computer audio only"]))
+        self.mic = ttk.Combobox(options, state="readonly")
+        self.output = ttk.Combobox(options, state="readonly")
+        row("MICROPHONE", self.mic)
+        row("MEETING PLAYBACK", self.output)
+        row("ENGLISH SPEECH MODEL", ttk.Combobox(options, state="readonly", textvariable=self.model_name,
+            values=["tiny.en", "base.en", "small.en"]))
+        ttk.Label(options, textvariable=self.model_hint, style="Muted.TLabel", wraplength=660).pack(anchor="w", pady=(6, 8))
+        self.refresh_button = ttk.Button(options, text="Refresh audio devices", command=self.refresh_devices)
+        self.refresh_button.pack(anchor="w")
+        ttk.Label(options, text="Use headphones for calls. Computer audio includes all apps on your selected output.",
+                  style="Muted.TLabel", wraplength=660).pack(anchor="w", pady=(8, 0))
+
+        storage = ttk.Frame(frame, style="Card.TFrame", padding=(0, 16, 0, 0))
+        storage.pack(fill="x", pady=(12, 0))
+        storage.columnconfigure(0, weight=1)
+        ttk.Label(storage, text="SAVE LOCATION  ·  Transcript, notes & recorded audio",
+                  style="Muted.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Entry(storage, textvariable=self.save_path, state="readonly").grid(
+            row=1, column=0, sticky="ew", pady=(5, 0), padx=(0, 12))
+        ttk.Button(storage, text="Open this folder", command=self.open_folder).grid(
+            row=0, column=1, rowspan=2, padx=(0, 8))
+        ttk.Button(storage, text="All meetings", command=self.open_all_meetings).grid(
+            row=0, column=2, rowspan=2)
 
     def refresh_library(self):
         previous = self.selected_folder

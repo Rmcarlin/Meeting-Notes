@@ -55,12 +55,14 @@ WORKSPACE
 Live transcript: timestamps and audio source labels, updated during the meeting.
 Follow live transcript: turn off to read older text without automatic scrolling.
 Meeting notes: draft excerpts update during the meeting and are finalized on stop.
+Settings: meeting title, capture mode, microphone, playback device, speech model,
+device refresh, and save-location shortcuts.
 Copy text / Export: copy or export the currently visible transcript, notes or
 library preview. Export to a location outside the meetings library.
 Saved meetings: search by title or creation date, preview transcripts or notes,
 open session folders, and delete a selected meeting after confirmation.
 Ctrl+Enter starts/stops a session. Ctrl+E exports the current text.
-The setup panel scrolls on smaller windows; the save location remains visible.
+Start, stop, and import controls remain available beside the workspace tabs.
 Closing an active session stops capture, finishes saving, then closes the window.
 If a problem occurs, the window stays open so you can review it.
 
